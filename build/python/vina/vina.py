@@ -41,7 +41,7 @@ class Vina:
         elif sf_name == 'vinardo':
             self._weights = (-0.045, 0.8, -0.035, -0.6, 50, 0.05846)
         else:
-            self._weights = (0.1662, 0.1209, 0.1406, 0.1322, 50)
+            self._weights = (0.1662, 0.1209, 0.1406, 0.1322, 50, 0.2983)
         self._rigid_receptor = None
         self._flex_receptor = None
         self._ligands = None
@@ -217,15 +217,16 @@ class Vina:
             raise TypeError('Error: Cannot set weights (%s).' % weights)
         if self._sf_name == 'vina':
             if len(weights) != 7:
-                raise ValueError('Error: Number of weights does not correspond to Vina scoring function.' )
+                raise ValueError('Error: Number of weights does not correspond to Vina scoring function.')
             self._vina.set_vina_weights(*weights)
-        else:
+        elif self._sf_name == 'vinardo':
             if len(weights) != 6:
-                raise ValueError('Error: Number of weights does not correspond to AD4 or Vinardo scoring function.')
-            if self._sf_name == 'ad4':
-                self._vina.set_ad4_weights(*weights)
-            else:
-                self._vina.set_vinardo_weights(*weights)
+                raise ValueError('Error: Number of weights does not correspond to Vinardo scoring function.')
+            self._vina.set_vinardo_weights(*weights)
+        else:  # ad4
+            if len(weights) != 6:
+                raise ValueError('Error: Number of weights does not correspond to AD4 scoring function.')
+            self._vina.set_ad4_weights(*weights)
 
         self._weights = weights
 
