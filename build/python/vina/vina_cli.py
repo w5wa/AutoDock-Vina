@@ -318,7 +318,7 @@ def main():
             print('Seed             : %d' % args.seed)
         print('Verbosity        : %d' % args.verbosity)
 
-    v = Vina(args.sf_name, args.cpu, args.seed, args.verbosity)
+    v = Vina(args.sf_name, args.cpu, args.seed, verbosity=args.verbosity)
 
     # Set receptor (rigid_name can be ignored for AD4)
     if args.receptor is not None or args.flex is not None:

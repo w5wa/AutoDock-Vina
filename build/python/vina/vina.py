@@ -41,7 +41,7 @@ class Vina:
         elif sf_name == 'vinardo':
             self._weights = (-0.045, 0.8, -0.035, -0.6, 50, 0.05846)
         else:
-            self._weights = (0.1662, 0.1209, 0.1406, 0.1322, 50)
+            self._weights = (0.1662, 0.1209, 0.1406, 0.1322, 50, 0.2983)
         self._rigid_receptor = None
         self._flex_receptor = None
         self._ligands = None
