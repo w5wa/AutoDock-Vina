@@ -81,7 +81,7 @@ void Vina::set_receptor(const std::string& rigid_name, const std::string& flex_n
 	}
 
 	// CONDITIONS 4, 5, 6, 7 (rigid_name and flex_name are empty strings per default)
-	m_receptor = parse_receptor_pdbqt(rigid_name, flex_name, m_scoring_function.get_atom_typing());
+	m_receptor = parse_receptor_pdbqt(rigid_name, flex_name, m_scoring_function->get_atom_typing());
 
 	m_model = m_receptor;
 	m_receptor_initialized = true;
@@ -97,7 +97,7 @@ void Vina::set_ligand_from_string(const std::string& ligand_string) {
 		exit(EXIT_FAILURE);
 	}
 
-	atom_type::t atom_typing = m_scoring_function.get_atom_typing();
+	atom_type::t atom_typing = m_scoring_function->get_atom_typing();
 
 	if (!m_receptor_initialized) {
 		// This situation will happen if we don't need a receptor and we are using affinity maps
@@ -113,7 +113,7 @@ void Vina::set_ligand_from_string(const std::string& ligand_string) {
 	m_model.append(parse_ligand_pdbqt_from_string(ligand_string, atom_typing));
 
 	// Because we precalculate ligand atoms interactions
-	precalculate_byatom precalculated_byatom(m_scoring_function, m_model);
+	precalculate_byatom precalculated_byatom(*m_scoring_function, m_model);
 
 	// Check that all atom types are in the grid (if initialized)
 	if (m_map_initialized) {
@@ -142,7 +142,7 @@ void Vina::set_ligand_from_string(const std::vector<std::string>& ligand_string)
 		exit(EXIT_FAILURE);
 	}
 
-	atom_type::t atom_typing = m_scoring_function.get_atom_typing();
+	atom_type::t atom_typing = m_scoring_function->get_atom_typing();
 
 	if (!m_receptor_initialized) {
 		// This situation will happen if we don't need a receptor and we are using affinity maps
@@ -158,7 +158,7 @@ void Vina::set_ligand_from_string(const std::vector<std::string>& ligand_string)
 		m_model.append(parse_ligand_pdbqt_from_string(ligand_string[i], atom_typing));
 
 	// Because we precalculate ligand atoms interactions
-	precalculate_byatom precalculated_byatom(m_scoring_function, m_model);
+	precalculate_byatom precalculated_byatom(*m_scoring_function, m_model);
 
 	// Check that all atom types are in the grid (if initialized)
 	if (m_map_initialized) {
@@ -280,9 +280,8 @@ void Vina::set_ad4_weights(double weight_ad4_vdw , double weight_ad4_hb,
 }
 
 void Vina::set_forcefield() {
-	ScoringFunction scoring_function(m_sf_choice, m_weights);
-	// Store in Vina object
-	m_scoring_function = scoring_function;
+    // Store in Vina object
+    m_scoring_function = std::make_shared<ScoringFunction>(m_sf_choice, m_weights);
 }
 
 std::vector<double> Vina::grid_dimensions_from_ligand(double buffer_size) {
@@ -320,15 +319,12 @@ void Vina::compute_vina_maps(double center_x, double center_y, double center_z, 
 	// Setup the search box
 	// Check first that the receptor was added
 	if (m_sf_choice == SF_AD42) {
-		std::cerr << "ERROR: Cannot compute Vina affinity maps using the AD4 scoring function.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot compute Vina affinity maps using the AD4 scoring function.");
 	} else if (!m_receptor_initialized) {
 		// m_model
-		std::cerr << "ERROR: Cannot compute Vina or Vinardo affinity maps. The (rigid) receptor was not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot compute Vina or Vinardo affinity maps. The (rigid) receptor was not initialized.");
 	} else if (size_x <= 0 || size_y <= 0 || size_z <= 0) {
-		std::cerr << "ERROR: Grid box dimensions must be greater than 0 Angstrom.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Grid box dimensions must be greater than 0 Angstrom");
 	} else if (size_x * size_y * size_z > 27e3) {
 		std::cerr << "WARNING: Search space volume is greater than 27000 Angstrom^3 (See FAQ)\n";
 	}
@@ -338,7 +334,7 @@ void Vina::compute_vina_maps(double center_x, double center_y, double center_z, 
 	vec center(center_x, center_y, center_z);
 	const fl slope = 1e6; // FIXME: too large? used to be 100
 	szv atom_types;
-	atom_type::t atom_typing = m_scoring_function.get_atom_typing();
+	atom_type::t atom_typing = m_scoring_function->get_atom_typing();
 
 	/* Atom types initialization
 	If a ligand was defined before, we only use those present in the ligand
@@ -347,7 +343,7 @@ void Vina::compute_vina_maps(double center_x, double center_y, double center_z, 
 	if (m_ligand_initialized)
 		atom_types = m_model.get_movable_atom_types(atom_typing);
 	else
-		atom_types = m_scoring_function.get_atom_types();
+		atom_types = m_scoring_function->get_atom_types();
 
 	// Grid dimensions
 	VINA_FOR_IN(i, gd) {
@@ -364,7 +360,7 @@ void Vina::compute_vina_maps(double center_x, double center_y, double center_z, 
 	}
 
 	// Initialize the scoring function
-	precalculate precalculated_sf(m_scoring_function);
+	precalculate precalculated_sf(*m_scoring_function);
 	// Store it now in Vina object because of non_cache
 	m_precalculated_sf = precalculated_sf;
 
@@ -410,7 +406,7 @@ void Vina::load_maps(std::string maps) {
 
 	// Check that all the affinity map are present for ligands/flex residues (if initialized already)
 	if (m_ligand_initialized) {
-		atom_type::t atom_typing = m_scoring_function.get_atom_typing();
+		atom_type::t atom_typing = m_scoring_function->get_atom_typing();
 		szv atom_types = m_model.get_movable_atom_types(atom_typing);
 
 		if (m_sf_choice == SF_VINA || m_sf_choice == SF_VINARDO) {
@@ -429,17 +425,16 @@ void Vina::load_maps(std::string maps) {
 void Vina::write_maps(const std::string& map_prefix, const std::string& gpf_filename,
 					  const std::string& fld_filename, const std::string& receptor_filename) {
 	if (!m_map_initialized) {
-		std::cerr << "ERROR: Cannot write affinity maps. Affinity maps were not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot write affinity maps. Affinity maps were not initialized.");
 	}
 
 	szv atom_types;
-	atom_type::t atom_typing = m_scoring_function.get_atom_typing();
+	atom_type::t atom_typing = m_scoring_function->get_atom_typing();
 
 	if (m_ligand_initialized)
 		atom_types = m_model.get_movable_atom_types(atom_typing);
 	else
-		atom_types = m_scoring_function.get_atom_types();
+		atom_types = m_scoring_function->get_atom_types();
 
 	if (m_sf_choice == SF_VINA || m_sf_choice == SF_VINARDO) {
 		doing("Writing Vina maps", m_verbosity, 0);
@@ -461,13 +456,11 @@ std::vector< std::vector<double> > Vina::get_poses_coordinates(int how_many, dou
 	std::vector< std::vector<double> > coordinates;
 
 	if (how_many < 0) {
-		std::cerr << "Error: number of poses asked must be greater than zero.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("number of poses asked must be greater than zero.");
 	}
 
 	if (energy_range < 0) {
-		std::cerr << "Error: energy range must be greater than zero.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("energy range must be greater than zero.");
 	}
 
 	if (!m_poses.empty()) {
@@ -505,13 +498,11 @@ std::vector< std::vector<double> > Vina::get_poses_energies(int how_many, double
 	std::vector< std::vector<double> > energies;
 
 	if (how_many < 0) {
-		std::cerr << "Error: number of poses asked must be greater than zero.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("number of poses asked must be greater than zero.");
 	}
 
 	if (energy_range < 0) {
-		std::cerr << "Error: energy range must be greater than zero.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("energy range must be greater than zero.");
 	}
 
 	if (!m_poses.empty()) {
@@ -570,13 +561,11 @@ std::string Vina::get_poses(int how_many, double energy_range) {
 	std::string remarks;
 
 	if (how_many < 0) {
-		std::cerr << "Error: number of poses written must be greater than zero.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("number of poses written must be greater than zero.");
 	}
 
 	if (energy_range < 0) {
-		std::cerr << "Error: energy range must be greater than zero.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("energy range must be greater than zero.");
 	}
 
 	if (!m_poses.empty()) {
@@ -643,11 +632,9 @@ void Vina::randomize(const int max_steps) {
 	// Randomize ligand/flex residues conformation
 	// Check the box was defined
 	if (!m_ligand_initialized) {
-		std::cerr << "ERROR: Cannot do ligand randomization. Ligand(s) was(ere) not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot do ligand randomization. Ligand(s) was(ere) not initialized.");
 	} else if (!m_map_initialized) {
-		std::cerr << "ERROR: Cannot do ligand randomization. Affinity maps were not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot do ligand randomization. Affinity maps were not initialized.");
 	}
 
 	conf c;
@@ -666,6 +653,7 @@ void Vina::randomize(const int max_steps) {
 	VINA_FOR(i, max_steps) {
 		c = init_conf;
 		c.randomize(m_grid.corner1(), m_grid.corner2(), generator);
+		m_model.set(c);
 		penalty = m_model.clash_penalty();
 
 		if (i == 0 || penalty < best_clash_penalty) {
@@ -683,7 +671,7 @@ void Vina::randomize(const int max_steps) {
 }
 
 void Vina::show_score(const std::vector<double> energies) {
-	std::cout << "Estimated Free Energy of Binding   : " << std::fixed << std::setprecision(3) << energies[0] << " (kcal/mol) [=(1)+(2)+(3)+(4)]\n";
+	std::cout << "Estimated Free Energy of Binding   : " << std::fixed << std::setprecision(3) << energies[0] << " (kcal/mol) [=(1)+(2)+(3)-(4)]\n";
 	std::cout << "(1) Final Intermolecular Energy    : " << std::fixed << std::setprecision(3) << energies[1] + energies[2] << " (kcal/mol)\n";
 	std::cout << "    Ligand - Receptor              : " << std::fixed << std::setprecision(3) << energies[1] << " (kcal/mol)\n";
 	std::cout << "    Ligand - Flex side chains      : " << std::fixed << std::setprecision(3) << energies[2] << " (kcal/mol)\n";
@@ -732,7 +720,7 @@ std::vector<double> Vina::score(double intramolecular_energy) {
 		lig_intra = m_model.evali(m_precalculated_byatom, authentic_v); // [2] ligand_i -- ligand_i
 		intra = flex_grids + intra_pairs + lig_intra;
 		// Total
-		total = m_scoring_function.conf_independent(m_model, inter + intra - intramolecular_energy); // we pass intermolecular energy from the best pose
+		total = m_scoring_function->conf_independent(m_model, inter + intra - intramolecular_energy); // we pass intermolecular energy from the best pose
 		// Torsion, we want to know how much torsion penalty was added to the total energy
 		conf_independent = total - (inter + intra - intramolecular_energy);
 	} else {
@@ -746,7 +734,7 @@ std::vector<double> Vina::score(double intramolecular_energy) {
 		lig_intra = m_model.evali(m_precalculated_byatom, authentic_v); // [2] ligand_i -- ligand_i
 		intra = flex_grids + intra_pairs + lig_intra;
 		// Torsion
-		conf_independent = m_scoring_function.conf_independent(m_model, 0); // [3] we can pass e=0 because we do not modify the energy like in vina
+		conf_independent = m_scoring_function->conf_independent(m_model, 0); // [3] we can pass e=0 because we do not modify the energy like in vina
 		// Total
 		total = inter + conf_independent; // (+ intra - intra)
 	}
@@ -762,7 +750,7 @@ std::vector<double> Vina::score(double intramolecular_energy) {
 	if (m_sf_choice == SF_VINA  || m_sf_choice == SF_VINARDO) {
 		energies.push_back(intramolecular_energy);
 	} else {
-		energies.push_back(-intra);
+		energies.push_back(intra);
 	}
 
 	return energies;
@@ -773,14 +761,11 @@ std::vector<double> Vina::score() {
 	// Check if ff and ligand were initialized
 	// Check if the ligand is not outside the box
 	if (!m_ligand_initialized) {
-		std::cerr << "ERROR: Cannot score the pose. Ligand(s) was(ere) not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot score the pose. Ligand(s) was(ere) not initialized.");
 	} else if (!m_map_initialized) {
-		std::cerr << "ERROR: Cannot score the pose. Affinity maps were not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot score the pose. Affinity maps were not initialized.");
 	} else if (!m_grid.is_in_grid(m_model)) {
-		std::cerr << "ERROR: The ligand is outside the grid box. Increase the size of the grid box or center it accordingly around the ligand.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("The ligand is outside the grid box. Increase the size of the grid box or center it accordingly around the ligand.");
 	}
 
 	double intramolecular_energy = 0;
@@ -844,14 +829,11 @@ std::vector<double> Vina::optimize(int max_steps) {
 	// Check if ff, box and ligand were initialized
 	// Check if the ligand is not outside the box
 	if (!m_ligand_initialized) {
-		std::cerr << "ERROR: Cannot do the optimization. Ligand(s) was(ere) not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot do the optimization. Ligand(s) was(ere) not initialized.");
 	} else if (!m_map_initialized) {
-		std::cerr << "ERROR: Cannot do the optimization. Affinity maps were not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot do the optimization. Affinity maps were not initialized.");
 	} else if (!m_grid.is_in_grid(m_model)) {
-		std::cerr << "ERROR: The ligand is outside the grid box. Increase the size of the grid box or center it accordingly around the ligand.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("The ligand is outside the grid box. Increase the size of the grid box or center it accordingly around the ligand.");
 	}
 
 	double e = 0;
@@ -884,14 +866,11 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 	// Vina search (Monte-carlo and local optimization)
 	// Check if ff, box and ligand were initialized
 	if (!m_ligand_initialized) {
-		std::cerr << "ERROR: Cannot do the global search. Ligand(s) was(ere) not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot do the global search. Ligand(s) was(ere) not initialized.");
 	} else if (!m_map_initialized) {
-		std::cerr << "ERROR: Cannot do the global search. Affinity maps were not initialized.\n";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Cannot do the global search. Affinity maps were not initialized.");
 	} else if (exhaustiveness < 1) {
-		std::cerr << "ERROR: Exhaustiveness must be 1 or greater";
-		exit(EXIT_FAILURE);
+		throw vina_runtime_error("Exhaustiveness must be 1 or greater");
 	}
 
 	if (exhaustiveness < m_cpu) {
@@ -924,9 +903,9 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 	sstm << "Performing docking (random seed: " << m_seed << ")";
 	doing(sstm.str(), m_verbosity, 0);
 	if (m_sf_choice == SF_VINA || m_sf_choice == SF_VINARDO) {
-		parallelmc(m_model, poses, m_precalculated_byatom,    m_grid, m_grid.corner1(), m_grid.corner2(), generator);
+		parallelmc(m_model, poses, m_precalculated_byatom,    m_grid, m_grid.corner1(), m_grid.corner2(), generator, m_progress_callback);
 	} else {
-		parallelmc(m_model, poses, m_precalculated_byatom, m_ad4grid, m_ad4grid.corner1(), m_ad4grid.corner2(), generator);
+		parallelmc(m_model, poses, m_precalculated_byatom, m_ad4grid, m_ad4grid.corner1(), m_ad4grid.corner2(), generator, m_progress_callback);
 	}
 	done(m_verbosity, 1);
 
@@ -941,7 +920,6 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 			if (!m_no_refine & m_receptor_initialized) {
 				change g(m_model.get_size());
 				quasi_newton quasi_newton_par;
-				const vec authentic_v(1000, 1000, 1000);
 				//std::vector<double> energies_before_opt;
 				//std::vector<double> energies_after_opt;
 				int evalcount = 0;
@@ -950,7 +928,6 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 				quasi_newton_par.max_steps = unsigned((25 + m_model.num_movable_atoms()) / 3);
 
 				VINA_FOR_IN(i, poses){
-					const fl slope_orig = m_non_cache.slope;
 					VINA_FOR(p, 5){
 						m_non_cache.slope = 100 * std::pow(10.0, 2.0*p);
 						quasi_newton_par(m_model, m_precalculated_byatom, m_non_cache, poses[i], g, authentic_v, evalcount);
@@ -958,12 +935,21 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 							break;
 					}
 					poses[i].coords = m_model.get_heavy_atom_movable_coords();
-					if (!m_non_cache.within(m_model))
-						poses[i].e = max_fl;
 					m_non_cache.slope = slope;
+					// rescoring in case a ligand or flex sidechain atom is outside box
+					// ensuring poses will be sorted with the same slope (a.k.a. out of
+					// box penalty) that will be used to calculate final energies.
+					m_model.set(poses[i].c);
+					double all_grids = m_non_cache.eval(m_model, authentic_v[1]);
+					double inter_pairs = m_model.eval_inter(m_precalculated_byatom, authentic_v); // ligand -- flex
+					double intra_pairs = m_model.evalo(m_precalculated_byatom, authentic_v); // flex_i -- flex_i and flex_i -- flex_j
+					double lig_intra = m_model.evali(m_precalculated_byatom, authentic_v); // ligand_i -- ligand_i
+					poses[i].e = all_grids + inter_pairs + intra_pairs + lig_intra;
 				}
 			}
 
+			poses.sort(); // order often changes after non_cache refinement
+			m_model.set(poses[0].c);
 			if (m_no_refine || !m_receptor_initialized)
 				intramolecular_energy = m_model.eval_intramolecular(m_precalculated_byatom, m_grid, authentic_v);
 			else
@@ -992,8 +978,10 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 			}
 		}
 
-		// Since pose.e contains the final energy, we have to sort them again
-		poses.sort();
+		// In AD4, the unbound energy is intra for each pose, so order may have changed
+		// The order does not change in Vina because unbound is intra of the 1st pose
+		if (m_sf_choice == SF_AD42)
+			poses.sort();
 
 		// Now compute RMSD from the best model
 		// Necessary to do it in two pass for AD4 scoring function
@@ -1025,8 +1013,8 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 		// Clean up by putting back the best pose in model
 		m_model.set(poses[0].c);
 	} else {
-		std::cerr << "WARNING: Could not find any conformations completely within the search space.\n";
-		std::cerr << "WARNING: Check that it is large enough for all movable atoms, including those in the flexible side chains.\n";
+		std::cerr << "WARNING: Zero poses in output container after global search. This should not be happening and is likely a bug.\n";
+		std::cerr << "WARNING: If possible, please file a bug report with your input files and random seed on GitHub.\n";
 	}
 
 	// Store results in Vina object
@@ -1044,7 +1032,6 @@ Vina::~Vina() {
 	// scoring function
 	scoring_function_choice m_sf_choice;
 	flv m_weights;
-	ScoringFunction m_scoring_function;
 	precalculate_byatom m_precalculated_byatom;
 	precalculate m_precalculated_sf;
 	// maps

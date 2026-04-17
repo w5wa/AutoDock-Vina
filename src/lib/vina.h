@@ -33,9 +33,7 @@
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
 #include <boost/program_options.hpp>
-#include <boost/filesystem/fstream.hpp>
-#include <boost/filesystem/exception.hpp>
-#include <boost/filesystem/convenience.hpp> // filesystem::basename
+#include <boost/filesystem.hpp>
 #include <boost/thread/thread.hpp> // hardware_concurrency // FIXME rm ?
 #include <boost/algorithm/string.hpp>
 //#include <openbabel/mol.h>
@@ -53,18 +51,33 @@
 #include "utils.h"
 #include "scoring_function.h"
 #include "precalculate.h"
+#include <memory>
 
+
+class vina_runtime_error : public std::exception {
+public:
+    explicit vina_runtime_error(const std::string & message)
+            : m_message("\n\nVina runtime error: " + message + "\n") {}
+
+    virtual const char* what() const throw () {
+        return m_message.c_str();
+    }
+
+private:
+    const std::string m_message;
+};
 
 class Vina {
 public:
 	// Constructor
-	Vina(const std::string &sf_name="vina", int cpu=0, int seed=0, int verbosity=1, bool no_refine=false) {
+	Vina(const std::string &sf_name="vina", int cpu=0, int seed=0, int verbosity=1, bool no_refine=false, std::function<void(double)>* progress_callback = NULL) {
 		m_verbosity = verbosity;
 		m_receptor_initialized = false;
 		m_ligand_initialized = false;
 		m_map_initialized = false;
 		m_seed = generate_seed(seed);
 		m_no_refine = no_refine;
+		m_progress_callback = progress_callback;
 
 		// Look for the number of cpu
 		if (cpu <= 0) {
@@ -125,6 +138,7 @@ public:
 	void load_maps(std::string maps);
 	void randomize(const int max_steps=10000);
 	std::vector<double> score();
+	std::vector<double> score(double intramolecular_energy);
 	std::vector<double> optimize(const int max_steps=0);
 	void global_search(const int exhaustiveness=8, const int n_poses=20, const double min_rmsd=1.0, const int max_evals=0);
 	std::string get_poses(int how_many=9, double energy_range=3.0);
@@ -147,7 +161,7 @@ private:
 	// scoring function
 	scoring_function_choice m_sf_choice;
 	flv m_weights;
-	ScoringFunction m_scoring_function;
+	std::shared_ptr<ScoringFunction> m_scoring_function;
 	precalculate_byatom m_precalculated_byatom;
 	precalculate m_precalculated_sf;
 	// maps
@@ -161,12 +175,12 @@ private:
 	// others
 	int m_verbosity;
 	bool m_no_refine;
+	std::function<void(double)>* m_progress_callback;
 
 	std::string vina_remarks(output_type& pose, fl lb, fl ub);
 	output_container remove_redundant(const output_container& in, fl min_rmsd);
 
 	void set_forcefield();
-	std::vector<double> score(double intramolecular_energy);
 	std::vector<double> optimize(output_type& out, const int max_steps=0);
 	int generate_seed(const int seed=0);
 };

@@ -19,7 +19,7 @@ from distutils.version import StrictVersion
 from distutils.util import convert_path
 from distutils.sysconfig import customize_compiler
 from distutils.ccompiler import show_compilers
-
+from packaging.version import Version, InvalidVersion
 
 # Path to the directory that contains this setup.py file.
 base_dir = os.path.abspath(os.path.dirname(__file__))
@@ -41,7 +41,7 @@ def is_package_installed(package_name):
 
 
 def in_conda():
-    return os.path.exists(os.path.join(sys.prefix, 'conda-meta'))
+    return 'CONDA_DEFAULT_ENV' in os.environ.keys()
 
 
 def find_version():
@@ -53,24 +53,37 @@ def find_version():
     3. __init__.py (as failback)
 
     """
+
+    def is_compliant(version_str):
+        try:
+            # Attempt to parse the version string using packaging's Version class
+            Version(version_str)
+            return True
+        except InvalidVersion:
+            # If parsing fails, the version is not PEP 440 compliant
+            print(f"{version_str} is not PEP 440 compliant")
+            return False
+        
     version_file = os.path.join(base_dir, 'vina', 'version.py')
     if os.path.isfile(version_file):
         with open(version_file) as f:
             version = f.read().strip()
         
         print('Version found: %s (from version.py)' % version)
-        return version
+        if is_compliant(version):
+            return version
 
     try:
-        git_output = subprocess.check_output(['git', 'describe', '--abbrev=7', '--dirty', '--always', '--tags'])
+        git_output = subprocess.check_output(['git', 'describe', '--abbrev=7', '--dirty=@mod', '--always', '--tags'])
         git_output = git_output.strip().decode()
 
         if git_output.startswith('v'):
             git_output = git_output[1:]
-        version = git_output.replace('dirty', 'mod').replace('-', '+', 1).replace('-', '.')
+        version = git_output.replace('-', '.dev', 1).replace('@', '-', 1).replace('-', '+', 1).replace('-','')
 
         print('Version found %s (from git describe)' % version)
-        return version
+        if is_compliant(version):
+            return version
     except:
         pass
     
@@ -96,74 +109,56 @@ def execute_command(cmd_line):
     return output, errors
 
 
-def locate_ob():
-    """Try use pkgconfig to locate Open Babel, otherwise guess default location."""
-    # Warn if the (major, minor) version of the installed OB doesn't match these python bindings
-    if not is_package_installed("openbabel"):
-        raise RuntimeError("Error: Openbabel is not installed.")
-
-    py_ver = StrictVersion(find_package_version('openbabel'))
-    py_major_ver, py_minor_ver = py_ver.version[:2]
-
-    if in_conda:
-        # It means that Openbabel was installed in an Anaconda env
-        data_pathname = sysconfig.get_path('data')
-        include_dirs = data_pathname + os.path.sep + 'include' + os.path.sep + 'openbabel{}'.format(py_major_ver)
-        library_dirs = data_pathname + os.path.sep + 'lib'
-
-        if os.path.isdir(include_dirs):
-            print('Open Babel location automatically determined in Anaconda.')
-            return include_dirs, library_dirs
-        else:
-            print("Warning: We are in an Anaconda env, but Openbabel is not installed here.")
-
-    pcfile = 'openbabel-{}'.format(py_major_ver)
-    output, errors = execute_command("pkg-config --modversion %s" % pcfile)
-
-    if output:
-        # It means that Openbabel was install with apt-get
-        ob_ver = StrictVersion(output.strip())
-
-        if not ob_ver.version[:2] == py_ver.version[:2]:
-            print('Warning: Open Babel {}.{}.x is required. Your version ({}) may not be compatible.'
-                    .format(py_major_ver, py_minor_ver, ob_ver))
-        include_dirs = execute_command("pkg-config --variable=pkgincludedir %s" % pcfile)[0].strip()
-        library_dirs = execute_command("pkg-config --variable=libdir %s" % pcfile)[0].strip()
-
-        print('Open Babel location automatically determined by pkg-config.')
-        return include_dirs, library_dirs
-    else:
-        pathnames = ['/usr', '/usr/local']
-        for pathname in pathnames:
-            include_dirs = pathname + os.path.sep + 'include' + os.path.sep + 'openbabel{}'.format(py_major_ver)
-            library_dirs = pathname + os.path.sep + 'lib'
-
-            if os.path.isdir(include_dirs):
-                print('Open Babel location was automatically guessed.')
-                return include_dirs, library_dirs
-
-        print('Open Babel location was set to default location.')
-        return include_dirs, library_dirs
-
-
 def locate_boost():
     """Try to locate boost."""
-    if in_conda:
-        data_pathname = sysconfig.get_path('data')
+    if in_conda():
+        if "CONDA_PREFIX" in os.environ.keys():
+            data_pathname = os.environ["CONDA_PREFIX"]
+        else:
+            data_pathname = sysconfig.get_path("data") # just for readthedocs build
+
         include_dirs = data_pathname + os.path.sep + 'include'
         library_dirs = data_pathname + os.path.sep + 'lib'
-        
+
         if os.path.isdir(include_dirs + os.path.sep + 'boost'):
             print('Boost library location automatically determined in this conda environment.')
             return include_dirs, library_dirs
         else:
             print('Boost library is not installed in this conda environment.')
 
+
+    # macos paths
+    macos_paths = ["/opt/homebrew", "/usr/local"]
+    for path in macos_paths:
+        include_dirs = f"{path}/include"
+        lib_dirs = [f"{path}/lib", f"{path}/lib64"]
+
+        if os.path.isdir(os.path.join(include_dirs, "boost")):
+            for lib_dir in lib_dirs:
+                if glob.glob(f"{lib_dir}/libboost*"):
+                    print(f"Boost found in {path}")
+                    return include_dirs, lib_dir
+                
+    # Standard Linux paths
+    linux_paths = ["/usr/local", "/usr"]
+    for path in linux_paths:
+        include_dirs = f"{path}/include"
+        lib_dirs = [f"{path}/lib", f"{path}/lib64", f"{path}/lib/x86_64-linux-gnu", f"{path}/lib/aarch64-linux-gnu"]
+
+        if os.path.isdir(os.path.join(include_dirs, "boost")):
+            for lib_dir in lib_dirs:
+                if glob.glob(f"{lib_dir}/libboost*"):
+                    print(f"Boost found in {path}")
+                    return include_dirs, lib_dir
+
+                
     include_dirs = '/usr/local/include'
 
     if os.path.isdir(include_dirs + os.path.sep + 'boost'):
         if glob.glob('/usr/local/lib/x86_64-linux-gnu/libboost*'):
             return include_dirs, '/usr/local/lib/x86_64-linux-gnu'
+        elif glob.glob('/usr/local/lib/aarch64-linux-gnu/libboost*'):
+            return include_dirs, '/usr/local/lib/aarch64-linux-gnu'
         elif glob.glob('/usr/local/lib64/libboost*'):
             return include_dirs, '/usr/local/lib64'
         elif glob.glob('/usr/local/lib/libboost*'):
@@ -174,6 +169,8 @@ def locate_boost():
     if os.path.isdir(include_dirs + os.path.sep + 'boost'):
         if glob.glob('/usr/lib/x86_64-linux-gnu/libboost*'):
             return include_dirs, '/usr/lib/x86_64-linux-gnu'
+        elif glob.glob('/usr/lib/aarch64-linux-gnu/libboost*'):
+            return include_dirs, '/usr/lib/aarch64-linux-gnu'
         elif glob.glob('/usr/lib64/libboost*'):
             return include_dirs, '/usr/lib64'
         elif glob.glob('/usr/lib/libboost*'):
@@ -251,11 +248,6 @@ class CustomBuildExt(build_ext):
         self.include_dirs.append(self.boost_include_dir)
         self.library_dirs.append(self.boost_library_dir)
 
-        # Openbabel
-        #self.ob_include_dir, self.ob_library_dir = locate_ob()
-        #self.include_dirs.append(self.ob_include_dir)
-        #self.library_dirs.append(self.ob_library_dir)
-
         # Vina
         self.include_dirs.append('src/lib')
         # SWIG
@@ -275,7 +267,7 @@ class CustomBuildExt(build_ext):
             print('\nError: SWIG failed.',
                   'You may need to manually specify the location of Open Babel include and library directories. '
                   'For example:',
-                  '  python setup.py build_ext -I{} -L{}'.format(self.include_dirs, self.library_dir),
+                  '  python setup.py build_ext -I{} -L{}'.format(self.include_dirs, self.library_dirs),
                   '  python setup.py install',
                   sep='\n')
             sys.exit(1)
@@ -294,13 +286,14 @@ class CustomBuildExt(build_ext):
             # To get the right @rpath on macos for libraries
             self.extensions[0].extra_link_args.append('-Wl,-rpath,' + self.library_dirs[0])
             self.extensions[0].extra_link_args.append('-Wl,-rpath,' + '/usr/lib')
-        
+
         print('- extra link args: %s' % self.extensions[0].extra_link_args)
 
         # Replace current compiler to g++
         self.compiler.compiler_so[0] = "g++"
         self.compiler.compiler_so.insert(2, "-shared")
 
+        # Remove compiler flags if we can
         remove_flags = ["-Wstrict-prototypes", "-Wall"]
         for remove_flag in remove_flags:
             try:
@@ -309,13 +302,19 @@ class CustomBuildExt(build_ext):
                 print('Warning: compiler flag %s is not present, cannot remove it.' % remove_flag)
                 pass
 
-        self.compiler.compiler_so.append("-std=c++11")
-        self.compiler.compiler_so.append("-Wno-long-long")
-        self.compiler.compiler_so.append("-pedantic")
         # Source: https://stackoverflow.com/questions/9723793/undefined-reference-to-boostsystemsystem-category-when-compiling
-        self.compiler.compiler_so.append('-DBOOST_ERROR_CODE_HEADER_ONLY')
+        vina_compiler_options = [
+                               "-std=c++14",
+                               "-Wno-long-long",
+                               "-pedantic",
+                               '-DBOOST_ERROR_CODE_HEADER_ONLY'
+                              ]
 
-        print('- compiler options: %s' % self.compiler.compiler_so)
+        print('- compiler options: %s' % (self.compiler.compiler_so + vina_compiler_options))
+
+        for ext in self.extensions:
+            ext.extra_compile_args += vina_compiler_options
+
         build_ext.build_extensions(self)
 
 
@@ -357,8 +356,8 @@ setup(
     cmdclass={'build': CustomBuild, 'build_ext': CustomBuildExt, 'install': CustomInstall, 'sdist': CustomSdist},
     packages=['vina'],
     package_dir=package_dir,
-    install_requires=['numpy>=1.18'],
-    python_requires='>=3.5.*',
+    install_requires=['numpy>=1.18', "setuptools>=50.3", "wheel", "packaging"],
+    python_requires='>=3.5',
     ext_modules=[obextension],
     #entry_points={"console_scripts": ["vina = vina.vina_cli:main"]},
     classifiers=[

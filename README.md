@@ -2,7 +2,7 @@ AutoDock Vina: Docking and virtual screening program
 ----------------------------------------------------
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![PyPI version fury.io](https://img.shields.io/badge/version-1.2.0-green.svg)](https://pypi.python.org/pypi/ansicolortags/)
+[![PyPI version fury.io](https://img.shields.io/badge/version-1.2.5-green.svg)](https://pypi.python.org/pypi/ansicolortags/)
 [![Documentation Status](https://readthedocs.org/projects/autodock-vina/badge/?version=latest)](https://autodock-vina.readthedocs.io/en/latest/?badge=latest)
 [![Downloads](https://static.pepy.tech/personalized-badge/vina?period=total&units=international_system&left_color=grey&right_color=green&left_text=Downloads)](https://pepy.tech/project/vina)
 
@@ -13,7 +13,7 @@ AutoDock Vina: Docking and virtual screening program
 * Support of macrocycle molecules
 * Hydrated docking protocol
 * Can write and load external AutoDock maps
-* Python bindings for Python 3
+* Python bindings for Python 3 (Linux and Mac)
 
 AutoDock Vina is distributed under the Apache License, Version 2.0.
 
@@ -22,5 +22,5 @@ AutoDock Vina is distributed under the Apache License, Version 2.0.
 The installation instructions, documentation and tutorials can be found on [readthedocs.org](https://autodock-vina.readthedocs.io/en/latest/).
 
 ## Citations
-* J. Eberhardt, D. Santos-Martins, A. F. Tillack, and S. Forli. (2021). AutoDock Vina 1.2.0: New Docking Methods, Expanded Force Field, and Python Bindings. Journal of Chemical Information and Modeling. 
-* O. Trott and A. J. Olson. (2010). AutoDock Vina: improving the speed and accuracy of docking with a new scoring function, efficient optimization, and multithreading. Journal of computational chemistry, 31(2), 455-461.
+* [J. Eberhardt, D. Santos-Martins, A. F. Tillack, and S. Forli. (2021). AutoDock Vina 1.2.0: New Docking Methods, Expanded Force Field, and Python Bindings. Journal of Chemical Information and Modeling.](https://pubs.acs.org/doi/10.1021/acs.jcim.1c00203) 
+* [O. Trott and A. J. Olson. (2010). AutoDock Vina: improving the speed and accuracy of docking with a new scoring function, efficient optimization, and multithreading. Journal of computational chemistry, 31(2), 455-461.](https://onlinelibrary.wiley.com/doi/10.1002/jcc.21334)

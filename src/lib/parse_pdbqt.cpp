@@ -344,6 +344,7 @@ void parse_pdbqt_aux(std::istream& in, parsing_struct& p, context& c, boost::opt
         add_context(c, str);
 
         if(str.empty()) {} // ignore ""
+        if(str[0] == '\0') {} // ignore a different kind of emptiness (potential issues on Windows)
         else if(starts_with(str, "WARNING")) {} // ignore - AutoDockTools bug workaround
         else if(starts_with(str, "REMARK")) {} // ignore
         else if(starts_with(str, "BRANCH")) parse_pdbqt_branch_aux(in, str, p, c);
@@ -623,14 +624,7 @@ struct pdbqt_initializer {
 model parse_ligand_pdbqt_from_file(const std::string& name, atom_type::t atype) { // can throw parse_error
     non_rigid_parsed nrp;
     context c;
-
-    try {
-        parse_pdbqt_ligand(make_path(name), nrp, c);
-    }
-    catch(pdbqt_parse_error& e) {
-        std::cerr << e.what();
-        exit(EXIT_FAILURE);
-    }
+    parse_pdbqt_ligand(make_path(name), nrp, c);
 
     pdbqt_initializer tmp(atype);
     tmp.initialize_from_nrp(nrp, c, true);
@@ -642,14 +636,8 @@ model parse_ligand_pdbqt_from_string(const std::string& string_name, atom_type::
     non_rigid_parsed nrp;
     context c;
 
-    try {
-        std::stringstream molstream(string_name);
-        parse_pdbqt_ligand(molstream, nrp, c);
-    }
-    catch(pdbqt_parse_error& e) {
-        std::cerr << e.what() << '\n';
-        exit(EXIT_FAILURE);
-    }
+    std::stringstream molstream(string_name);
+    parse_pdbqt_ligand(molstream, nrp, c);
 
     pdbqt_initializer tmp(atype);
     tmp.initialize_from_nrp(nrp, c, true);
@@ -671,23 +659,11 @@ model parse_receptor_pdbqt(const std::string& rigid_name, const std::string& fle
     pdbqt_initializer tmp(atype);
 
     if (!rigid_name.empty()) {
-        try {
-            parse_pdbqt_rigid(make_path(rigid_name), r);
-        }
-        catch(pdbqt_parse_error& e) {
-            std::cerr << e.what() << '\n';
-            exit(EXIT_FAILURE);
-        }
+        parse_pdbqt_rigid(make_path(rigid_name), r);
     }
     
     if (!flex_name.empty()) {
-        try {
-            parse_pdbqt_flex(make_path(flex_name), nrp, c);
-        }
-        catch(pdbqt_parse_error& e) {
-            std::cerr << e.what() << '\n';
-            exit(EXIT_FAILURE);
-        }
+        parse_pdbqt_flex(make_path(flex_name), nrp, c);
     }
 
     if (!rigid_name.empty()) {

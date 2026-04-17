@@ -21,13 +21,17 @@
 */
 
 #include <iostream>
+#include <set>
 #include <string>
 #include <vector> // ligand paths
 #include <exception>
+#include "parse_error.h"
 #include <boost/program_options.hpp>
 #include "vina.h"
 #include "utils.h"
 #include "scoring_function.h"
+#include <unordered_map>
+#include <boost/filesystem.hpp>
 
 struct usage_error : public std::runtime_error {
 	usage_error(const std::string& message) : std::runtime_error(message) {}
@@ -132,6 +136,7 @@ Thank you!\n";
 		double energy_range = 3.0;
 		double grid_spacing = 0.375;
 		double buffer_size = 4;
+		double unbound_energy = NAN;
 
 		// autodock4.2 weights
 		double weight_ad4_vdw   = 0.1662;
@@ -175,7 +180,7 @@ Thank you!\n";
 			("receptor", value<std::string>(&rigid_name), "rigid part of the receptor (PDBQT)")
 			("flex", value<std::string>(&flex_name), "flexible side chains, if any (PDBQT)")
 			("ligand", value< std::vector<std::string> >(&ligand_names)->multitoken(), "ligand (PDBQT)")
-			("batch", value< std::vector<std::string> >(&batch_ligand_names)->multitoken(), "batch ligand (PDBQT)")
+			("batch", value< std::vector<std::string> >(&batch_ligand_names)->multitoken(), "batch directory or ligands (PDBQT)")
 			("scoring", value<std::string>(&sf_name)->default_value(sf_name), "scoring function (ad4, vina or vinardo)")
 		;
 		//options_description search_area("Search area (required, except with --score_only)");
@@ -201,6 +206,7 @@ Thank you!\n";
 		advanced.add_options()
 			("score_only",     bool_switch(&score_only),     "score only - search space can be omitted")
 			("local_only",     bool_switch(&local_only),     "do local search only")
+			("unbound_energy", value<double>(&unbound_energy)->default_value(unbound_energy), "Explicitly set the Unbound System's Energy for --score_only jobs")
 			("no_refine", bool_switch(&no_refine),  "when --receptor is provided, do not use explicit receptor atoms (instead of precalculated grids) for: (1) local optimization and scoring after docking, (2) --local_only jobs, and (3) --score_only jobs")
 			("force_even_voxels", bool_switch(&force_even_voxels),  "calculated grid maps will have an even number of voxels (intervals) in each dimension (odd number of grid points)")
 			("randomize_only", bool_switch(&randomize_only), "randomize input, attempting to avoid clashes")
@@ -367,7 +373,7 @@ Thank you!\n";
 			} else if (batch_ligand_names.size() > 1) {
 				std::cout << "Ligands (batch mode): " << batch_ligand_names.size() << " molecules\n";
 			}
-			if (!vm.count("maps") & !autobox) {
+			if (!vm.count("maps") && !autobox) {
 				std::cout << "Grid center: X " << center_x << " Y " << center_y << " Z " << center_z << "\n";
 				std::cout << "Grid size  : X " << size_x << " Y " << size_y << " Z " << size_z << "\n";
 				std::cout << "Grid space : " << grid_spacing << "\n";
@@ -418,7 +424,7 @@ Thank you!\n";
 				} else {
 					// Will compute maps only for Vina atom types in the ligand(s)
 					// In the case users ask for score and local only with the autobox arg, we compute the optimal box size for it/them.
-					if ((score_only || local_only) & autobox) {
+					if ((score_only || local_only) && autobox) {
 						std::vector<double> dim = v.grid_dimensions_from_ligand(buffer_size);
 						v.compute_vina_maps(dim[0], dim[1], dim[2], dim[3], dim[4], dim[5], grid_spacing, force_even_voxels);
 					} else {
@@ -435,7 +441,11 @@ Thank you!\n";
 				v.write_pose(out_name);
 			} else if (score_only) {
 				std::vector<double> energies;
-				energies = v.score();
+				if (std::isnan(unbound_energy)) {
+					energies = v.score();
+				} else {
+					energies = v.score(unbound_energy);
+				}
 				v.show_score(energies);
 			} else if (local_only) {
 				std::vector<double> energies;
@@ -447,7 +457,7 @@ Thank you!\n";
 				v.write_poses(out_name, num_modes, energy_range);
 			}
 		} else if (vm.count("batch")) {
-			if (sf_name.compare("vina") == 0) {
+			if (sf_name.compare("vina") == 0 || sf_name.compare("vinardo") == 0) {
 				if (vm.count("maps")) {
 					v.load_maps(maps);
 				} else {
@@ -459,16 +469,62 @@ Thank you!\n";
 				}
 			}
 
-			VINA_RANGE(i, 0, batch_ligand_names.size()) {
-				v.set_ligand_from_file(batch_ligand_names[i]);
+			// Iter all .pdbqt files in the batch input directory
+			if (batch_ligand_names.size() == 1 && is_directory(batch_ligand_names[0])) {
+				std::string in_dir = batch_ligand_names[0];
+				batch_ligand_names.clear();
+				for (const auto& entry : boost::filesystem::directory_iterator(in_dir)) {
+					if (entry.path().extension() == ".pdbqt") {
+						batch_ligand_names.push_back(entry.path().string());
+					}
+				}
+			}
 
-				out_name = default_output(get_filename(batch_ligand_names[i]), out_dir);
+			std::set<std::string> repeated_names;
+			std::set<std::string> raw_names;
+			std::string name;
+			VINA_RANGE(i, 0, batch_ligand_names.size()) {
+				name = get_filename(batch_ligand_names[i]);
+				if (raw_names.count(name)) {
+					repeated_names.insert(name);
+				}
+				raw_names.insert(name);
+			}
+			std::unordered_map<std::string, int> instance_counter;
+
+			std::size_t failed_ligand_parsing = 0;
+			VINA_RANGE(i, 0, batch_ligand_names.size()) {
+				name = get_filename(batch_ligand_names[i]);
+				if (repeated_names.count(name)) {
+					if (instance_counter.count(name)) {
+						instance_counter[name] += 1;
+					} else {
+						instance_counter[name] = 1;
+					}
+					out_name = default_output(name, out_dir, instance_counter[name]);
+				} else {
+					out_name = default_output(name, out_dir);
+				}
+
+				try {
+					v.set_ligand_from_file(batch_ligand_names[i]);
+				}
+				catch(pdbqt_parse_error& e) {
+					std::cerr << e.what();
+					std::cout << "Failed parsing " << batch_ligand_names[i] << ". Skipping it.\n";
+					failed_ligand_parsing++;
+					continue;
+				}
 
 				if (randomize_only) {
 					v.randomize();
 					v.write_pose(out_name);
 				} else if (score_only) {
-					v.score();
+					if (std::isnan(unbound_energy)) {
+						v.score();
+					} else {
+						v.score(unbound_energy);
+					}
 				} else if (local_only) {
 					v.optimize();
 					v.write_pose(out_name);
@@ -477,9 +533,20 @@ Thank you!\n";
 					v.write_poses(out_name, num_modes, energy_range);
 				}
 			}
+			if (repeated_names.size()) {
+				std::cout << "Found " << repeated_names.size() << " repeated filenames in the input batch.\n";
+				std::cout << "The corresponding output filenames are suffixed with _instance<n>_out.pdbqt\n";
+			}
+			if (failed_ligand_parsing) {
+				std::cout << "Failed to parse " << failed_ligand_parsing << " ligands.\n";
+			}
 		}
 	}
 
+	catch(pdbqt_parse_error& e) {
+		std::cerr << e.what();
+		return 1;
+	}
 	catch(file_error& e) {
 		std::cerr << "\n\nError: could not open \"" << e.name.string() << "\" for " << (e.in ? "reading" : "writing") << ".\n";
 		return 1;
